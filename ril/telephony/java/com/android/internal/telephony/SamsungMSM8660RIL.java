@@ -60,13 +60,14 @@ import com.android.internal.telephony.uicc.IccCardStatus;
 public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
 
     private AudioManager mAudioManager;
-    private Message mPendingGetSimStatus;
 
     private Object mSMSLock = new Object();
     private boolean mIsSendingSMS = false;
     protected boolean isGSM = false;
     public static final long SEND_SMS_TIMEOUT_IN_MS = 30000;
     private boolean samsungEmergency = needsOldRilFeature("samsungEMSReq");
+
+    private Message mPendingGetSimStatus;
 
     public SamsungMSM8660RIL(Context context, int preferredNetworkType,
             int cdmaSubscription, Integer instanceId) {
@@ -236,7 +237,7 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
             dc = new DriverCall();
 
             dc.state = DriverCall.stateFromCLCC(p.readInt());
-            dc.index = p.readInt();
+            dc.index = p.readInt() & 0xff;
             dc.TOA = p.readInt();
             dc.isMpty = (0 != p.readInt());
             dc.isMT = (0 != p.readInt());
@@ -247,12 +248,16 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
             }
             dc.isVoice = (0 == voiceSettings) ? false : true;
             dc.isVoicePrivacy = (0 != p.readInt());
+            if (isGSM) {
+                p.readInt();
+                p.readInt();
+                p.readString();
+            }
             dc.number = p.readString();
             int np = p.readInt();
             dc.numberPresentation = DriverCall.presentationFromCLIP(np);
             dc.name = p.readString();
-            // according to ril.h, namePresentation should be handled as numberPresentation;
-            dc.namePresentation = DriverCall.presentationFromCLIP(p.readInt());
+            dc.namePresentation = p.readInt();
             int uusInfoPresent = p.readInt();
             if (uusInfoPresent == 1) {
                 dc.uusInfo = new UUSInfo();
@@ -298,46 +303,17 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
         return response;
     }
 
-    // Hack for Lollipop
-    // The system now queries for SIM status before radio on, resulting
-    // in getting an APPSTATE_DETECTED state. The RIL does not send an
-    // RIL_UNSOL_RESPONSE_SIM_STATUS_CHANGED message after the SIM is
-    // initialized, so delay the message until the radio is on.
-    @Override
-    public void
-    getIccCardStatus(Message result) {
-        if (mState != RadioState.RADIO_ON) {
-            mPendingGetSimStatus = result;
-        } else {
-            super.getIccCardStatus(result);
-        }
-    }
-
-    @Override
-    protected void switchToRadioState(RadioState newState) {
-        super.switchToRadioState(newState);
-
-        if (newState == RadioState.RADIO_ON && mPendingGetSimStatus != null) {
-            super.getIccCardStatus(mPendingGetSimStatus);
-            mPendingGetSimStatus = null;
-        }
-    }
-
     @Override
     protected void
     processUnsolicited (Parcel p) {
         Object ret;
-        int dataPosition = p.dataPosition();
-        int origResponse = p.readInt();
-        int newResponse = origResponse;
-        switch (origResponse) {
+        int dataPosition = p.dataPosition(); // save off position within the Parcel
+        int response = p.readInt();
+
+        switch(response) {
             case RIL_UNSOL_RIL_CONNECTED:
                 ret = responseInts(p);
-                if (SystemProperties.get("ril.socket.reset").equals("1")) {
-                    setRadioPower(false, null);
-                }
-                // Trigger socket reset if RIL connect is called again
-                SystemProperties.set("ril.socket.reset", "1");
+                setRadioPower(false, null);
                 setPreferredNetworkType(mPreferredNetworkType, null);
                 setCdmaSubscriptionSource(mCdmaSubscription, null);
                 if(mRilVersion >= 8)
@@ -367,22 +343,6 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
                 ret = responseInts(p);
                 setWbAmr(((int[])ret)[0]);
                 break;
-            // Remap
-            case 1039:
-                newResponse = RIL_UNSOL_ON_SS;
-                break;
-            case 1040:
-                newResponse = RIL_UNSOL_STK_CC_ALPHA_NOTIFY;
-                break;
-            case 1041:
-                newResponse = RIL_UNSOL_UICC_SUBSCRIPTION_STATUS_CHANGED;
-                break;
-            case 1037: // RIL_UNSOL_TETHERED_MODE_STATE_CHANGED
-            case 1038: // RIL_UNSOL_DATA_NETWORK_STATE_CHANGED
-            case 1042: // RIL_UNSOL_QOS_STATE_CHANGED_IND
-                riljLog("SamsungMSM8660RIL: ignoring unsolicited response " +
-                        origResponse);
-                return;
             default:
                 // Rewind the Parcel
                 p.setDataPosition(dataPosition);
@@ -390,15 +350,6 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
                 // Forward responses that we are not overriding to the super class
                 super.processUnsolicited(p);
                 return;
-        }
-
-        if (newResponse != origResponse) {
-            riljLog("SamsungMSM8660RIL: remap unsolicited response from " +
-                    origResponse + " to " + newResponse);
-            p.setDataPosition(dataPosition);
-            p.writeInt(newResponse);
-            p.setDataPosition(dataPosition);
-            super.processUnsolicited(p);
         }
 
     }
@@ -685,21 +636,6 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
             CommandException ex = new CommandException(
                 CommandException.Error.REQUEST_NOT_SUPPORTED);
             AsyncResult.forMessage(result, null, ex);
-            result.sendToTarget();
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void setDataAllowed(boolean allowed, Message result) {
-        riljLog("setDataAllowed: not supported");
-
-        if (result != null) {
-            CommandException e = new CommandException(
-                CommandException.Error.REQUEST_NOT_SUPPORTED);
-            AsyncResult.forMessage(result, null, e);
             result.sendToTarget();
         }
     }
