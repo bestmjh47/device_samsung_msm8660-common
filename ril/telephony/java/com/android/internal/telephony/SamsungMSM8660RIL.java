@@ -422,9 +422,9 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
                 if (error == 0 || p.dataAvail() > 0) {
                     try {switch (tr.mRequest) {
                             /* Get those we're interested in */
-                        case RIL_REQUEST_DATA_REGISTRATION_STATE:
-                        case RIL_REQUEST_VOICE_REGISTRATION_STATE:
                         case RIL_REQUEST_OPERATOR:
+                        case RIL_REQUEST_VOICE_REGISTRATION_STATE:
+                        case RIL_REQUEST_DATA_REGISTRATION_STATE:
                             rr = tr;
                             break;
                     }} catch (Throwable thr) {
