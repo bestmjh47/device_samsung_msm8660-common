@@ -467,6 +467,8 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
         }
         return rr;
     }
+
+    private Object
     operatorCheck(Parcel p) {
         String response[] = (String[])responseStrings(p);
         for(int i=0; i<2; i++){
