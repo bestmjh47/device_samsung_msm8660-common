@@ -242,8 +242,10 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
             dc.isMT = (0 != p.readInt());
             dc.als = p.readInt();
             voiceSettings = p.readInt();
-            if (isGSM){
+            if (isGSM) {
                 p.readInt();
+                p.readInt();
+                p.readString();
             }
             dc.isVoice = (0 == voiceSettings) ? false : true;
             dc.isVoicePrivacy = (0 != p.readInt());
@@ -420,8 +422,8 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
                 if (error == 0 || p.dataAvail() > 0) {
                     try {switch (tr.mRequest) {
                             /* Get those we're interested in */
-                        case RIL_REQUEST_VOICE_REGISTRATION_STATE:
                         case RIL_REQUEST_DATA_REGISTRATION_STATE:
+                        case RIL_REQUEST_VOICE_REGISTRATION_STATE:
                         case RIL_REQUEST_OPERATOR:
                             rr = tr;
                             break;
@@ -449,9 +451,9 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
         Object ret = null;
         if (error == 0 || p.dataAvail() > 0) {
             switch (rr.mRequest) {
-                case RIL_REQUEST_VOICE_REGISTRATION_STATE: ret = responseVoiceDataRegistrationState(p); break;
-                case RIL_REQUEST_DATA_REGISTRATION_STATE: ret = responseVoiceDataRegistrationState(p); break;
                 case RIL_REQUEST_OPERATOR: ret =  operatorCheck(p); break;
+                case RIL_REQUEST_VOICE_REGISTRATION_STATE: ret = responseVoiceDataRegistrationState(p); break;
+                case RIL_REQUEST_DATA_REGISTRATION_STATE: ret = responseDataRegistrationState(p); break;
                 default:
                     throw new RuntimeException("Unrecognized solicited response: " + rr.mRequest);
             }
@@ -465,8 +467,6 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
         }
         return rr;
     }
-
-    private Object
     operatorCheck(Parcel p) {
         String response[] = (String[])responseStrings(p);
         for(int i=0; i<2; i++){
@@ -477,6 +477,22 @@ public class SamsungMSM8660RIL extends RIL implements CommandsInterface {
         return response;
     }
 
+    private Object
+    responseDataRegistrationState(Parcel p) {
+        String response[] = (String[])responseStrings(p);
+        if (isGSM){
+            /* DANGER WILL ROBINSON
+             * In some cases from Vodaphone we are receiving a RAT of 102
+             * while in tunnels of the metro. Lets Assume that if we
+             * receive 102 we actually want a RAT of 2 for EDGE service */
+            if (response.length > 4 &&
+                response[0].equals("1") &&
+                response[3].equals("102")) {
+                response[3] = "2";
+            }
+        }
+        return responseVoiceDataRegistrationState(p);
+    }
     private Object
     responseVoiceDataRegistrationState(Parcel p) {
         String response[] = (String[])responseStrings(p);
